@@ -1,16 +1,12 @@
 package dnd.dongocduc.appdt3shop.screen.cart.adapter;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.util.ArrayMap;
 import android.util.Log;
-import android.util.SparseBooleanArray;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageButton;
@@ -22,7 +18,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -48,7 +44,7 @@ public class CartChildAdapter extends RecyclerView.Adapter<CartChildAdapter.View
     private GetSumPriceListener mListener;
     /**
      * static?
-     * */
+     */
     private static boolean isSelectedAll = true;
 
     CartChildAdapter(List<Cart> list) {
@@ -63,9 +59,9 @@ public class CartChildAdapter extends RecyclerView.Adapter<CartChildAdapter.View
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        if (!isSelectedAll){
+        if (!isSelectedAll) {
             holder.checkBoxChoose.setChecked(false);
-        }else {
+        } else {
             holder.checkBoxChoose.setChecked(true);
         }
         holder.bindView();
@@ -81,10 +77,95 @@ public class CartChildAdapter extends RecyclerView.Adapter<CartChildAdapter.View
         this.mListener = listener;
     }
 
+    void setSelectAll(boolean isSelected) {
+        isSelectedAll = isSelected;
+        notifyDataSetChanged();
+    }
+
+    private List<Cart> handleData(List<Cart> list) {
+        for (int i = 0; i < list.size() - 1; i++) {
+            for (int j = 1; j < list.size(); j++) {
+                if (list.get(i).getName().equals(list.get(j).getName())) {
+                    int count = list.get(i).getCount() + list.get(j).getCount();
+                    double sum = list.get(i).getPrice() * count;
+                    String size = list.get(j).getSize();
+                    if (!list.get(i).getSize().equals(TEXT_NONE)) {
+                        size = size + ";" + list.get(i).getSize();
+                    }
+                    String color = list.get(j).getColor();
+                    if (!list.get(i).getColor().equals(TEXT_NONE)) {
+                        color = color + ";" + list.get(i).getColor();
+                    }
+                    Cart tmpCart = new Cart.CartBuilder()
+                            .setIdUser(sUser.getIdUser())
+                            .setIdProduct(list.get(j).getIdUser())
+                            .setName(list.get(j).getName())
+                            .setCount(count)
+                            .setPrice(list.get(j).getPrice())
+                            .setSize(size)
+                            .setColor(color)
+                            .setImageUrl(list.get(j).getImageUrl())
+                            .setSumPrice(sum)
+                            .build();
+                    list.add(tmpCart);
+                    addCart(tmpCart);
+                    removeCart(list.get(i).getId());
+                    removeCart(list.get(j).getId());
+                    list.remove(list.get(j));
+                    list.remove(list.get(i));
+                }
+            }
+        }
+        return list;
+    }
+
+    private void removeCart(int id_cart) {
+        DataClient dataClient = APIUtils.getData();
+        Call<String> callback = dataClient.removeCart(id_cart);
+        callback.enqueue(new Callback<String>() {
+            @Override
+            public void onResponse(@Nullable Call<String> call, @Nullable Response<String> response) {
+                if (Objects.requireNonNull(response).isSuccessful()) {
+                    if (Objects.equals(response.body(), "Success")) {
+                        Log.d(TAG, "Remove cart success");
+                    }
+                }
+            }
+
+            @Override
+            public void onFailure(@Nullable Call<String> call, @Nullable Throwable t) {
+                Log.e(TAG, "Error remove cart", t);
+            }
+        });
+    }
+
+    private void addCart(Cart c) {
+        DataClient dataClient = APIUtils.getData();
+        Call<String> callback = dataClient.addProductToCart(c.getIdUser(), c.getIdProduct(), c.getName(),
+                c.getColor(), c.getSize(), c.getPrice(), c.getSumPrice(), c.getImageUrl(), c.getCount());
+        callback.enqueue(new Callback<String>() {
+            @Override
+            public void onResponse(@Nullable Call<String> call, @Nullable Response<String> response) {
+                if (Objects.requireNonNull(response).isSuccessful()) {
+                    if (response.body() != null) {
+                        if (response.body().equals("Success")) {
+                            Log.d(TAG, "Add cart Success");
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void onFailure(@Nullable Call<String> call, @Nullable Throwable t) {
+                Log.e(TAG, "EROROR:\t", t);
+            }
+        });
+    }
+
     static class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener, TextView.OnEditorActionListener {
         private static final String TEXT_NONE = "None";
         private static final int X = 2, Y = 10;
-        private static ArrayMap<Integer, Integer> counts = new ArrayMap<>();
+        private Map<Integer, Integer> counts = new LinkedHashMap<>();
         private List<Cart> mList;
         private CheckBox checkBoxChoose;
         private ImageView imageViewAvatarProduct;
@@ -114,11 +195,15 @@ public class CartChildAdapter extends RecyclerView.Adapter<CartChildAdapter.View
         void bindView() {
             Cart cart = mList.get(getAdapterPosition());
             textViewName.setText(cart.getName());
-            if(counts != null){
-                for(){
-                    editTextCount.setText(String.valueOf(cart.getCount()));
-                    textViewPrice.setText(formatPrice(cart.getSumPrice()));
+            if (counts != null) {
+                for (Map.Entry<Integer, Integer> entry : counts.entrySet()) {
+                    double sum = entry.getValue() * cart.getPrice();
+                    editTextCount.setText(String.valueOf(entry.getValue()));
+                    textViewPrice.setText(formatPrice(sum));
                 }
+            } else {
+                editTextCount.setText(String.valueOf(cart.getCount()));
+                textViewPrice.setText(formatPrice(cart.getSumPrice()));
             }
             setClassify(cart, textViewType);
             loadImage(itemView.getContext(), cart.getImageUrl(), imageViewAvatarProduct, true);
@@ -222,99 +307,9 @@ public class CartChildAdapter extends RecyclerView.Adapter<CartChildAdapter.View
             }
         }
 
-        private void saveCount(int position, int count){
+        private void saveCount(int position, int count) {
             counts.put(position, count);
         }
 
-    }
-
-    void selectAll() {
-        isSelectedAll = true;
-        notifyDataSetChanged();
-    }
-
-    void unSelectAll() {
-        isSelectedAll = false;
-        notifyDataSetChanged();
-    }
-
-    private List<Cart> handleData(List<Cart> list) {
-        for (int i = 0; i < list.size() - 1; i++) {
-            for (int j = 1; j < list.size(); j++) {
-                if (list.get(i).getName().equals(list.get(j).getName())) {
-                    int count = list.get(i).getCount() + list.get(j).getCount();
-                    double sum = list.get(i).getPrice() * count;
-                    String size = list.get(j).getSize();
-                    if (!list.get(i).getSize().equals(TEXT_NONE)) {
-                        size = size + ";" + list.get(i).getSize();
-                    }
-                    String color = list.get(j).getColor();
-                    if (!list.get(i).getColor().equals(TEXT_NONE)) {
-                        color = color + ";" + list.get(i).getColor();
-                    }
-                    Cart tmpCart = new Cart.CartBuilder()
-                            .setIdUser(sUser.getIdUser())
-                            .setIdProduct(list.get(j).getIdUser())
-                            .setName(list.get(j).getName())
-                            .setCount(count)
-                            .setPrice(list.get(j).getPrice())
-                            .setSize(size)
-                            .setColor(color)
-                            .setImageUrl(list.get(j).getImageUrl())
-                            .setSumPrice(sum)
-                            .build();
-                    list.add(tmpCart);
-                    addCart(tmpCart);
-                    removeCart(list.get(i).getId());
-                    removeCart(list.get(j).getId());
-                    list.remove(list.get(j));
-                    list.remove(list.get(i));
-                }
-            }
-        }
-        return list;
-    }
-
-    private void removeCart(int id_cart) {
-        DataClient dataClient = APIUtils.getData();
-        Call<String> callback = dataClient.removeCart(id_cart);
-        callback.enqueue(new Callback<String>() {
-            @Override
-            public void onResponse(@Nullable Call<String> call, @Nullable Response<String> response) {
-                if (Objects.requireNonNull(response).isSuccessful()) {
-                    if (Objects.equals(response.body(), "Success")) {
-                        Log.d(TAG, "Remove cart success");
-                    }
-                }
-            }
-
-            @Override
-            public void onFailure(@Nullable Call<String> call, @Nullable Throwable t) {
-                Log.e(TAG, "Error remove cart", t);
-            }
-        });
-    }
-
-    private void addCart(Cart c) {
-        DataClient dataClient = APIUtils.getData();
-        Call<String> callback = dataClient.addProductToCart(c.getIdUser(), c.getIdProduct(), c.getName(),
-                c.getColor(), c.getSize(), c.getPrice(), c.getSumPrice(), c.getImageUrl(), c.getCount());
-        callback.enqueue(new Callback<String>() {
-            @Override
-            public void onResponse(@Nullable Call<String> call, @Nullable Response<String> response) {
-                if (Objects.requireNonNull(response).isSuccessful()) {
-                    if (response.body() != null) {
-                        if (response.body().equals("Success")) {
-                            Log.d(TAG, "Add cart Success");
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public void onFailure(@Nullable Call<String> call, @Nullable Throwable t) {
-                Log.e(TAG, "EROROR:\t", t);
-            }
-        });
     }
 }
